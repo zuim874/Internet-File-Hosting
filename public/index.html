@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>文瀑 · 内网文件中心</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- 全局隐藏的选文件输入（不嵌套进任何按钮，避免移动端重复弹窗） -->
+  <input type="file" id="fileInput" multiple hidden />
+
+  <!-- 背景氛围层 -->
+  <div class="aurora" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
+
+  <div class="shell" id="app">
+    <!-- 顶栏 -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">⽌</span>
+        <div class="brand-text">
+          <h1>文瀑</h1>
+          <span class="brand-sub">内网文件中心</span>
+        </div>
+      </div>
+
+      <div class="top-actions">
+        <button type="button" class="upload-btn" id="uploadTrigger">
+          <svg viewBox="0 0 24 24" class="icon"><path d="M7 16l5-5 5 5M12 4v10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          上传
+        </button>
+        <div class="server-meta">
+          <span class="dot"></span>
+          <span id="serverInfo">—</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- 搜索 + 分类 -->
+    <section class="toolbar">
+      <div class="searchbox">
+        <svg viewBox="0 0 24 24" class="icon"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input id="searchInput" type="text" placeholder="搜索当前目录中的文件…" autocomplete="off" />
+        <span id="searchClear" class="clear" hidden>×</span>
+      </div>
+      <nav class="cats" id="catNav"></nav>
+    </section>
+
+    <!-- 路径面包屑 -->
+    <nav class="crumbs" id="crumbs"></nav>
+
+    <!-- 文件列表 -->
+    <main class="filelist" id="fileList"></main>
+
+    <!-- 空状态 / 加载 -->
+    <div class="status" id="status" hidden></div>
+  </div>
+
+  <!-- 预览抽屉 -->
+  <div class="scrim" id="previewScrim" hidden></div>
+  <aside class="drawer" id="previewDrawer" hidden>
+    <header class="drawer-head">
+      <div class="drawer-title">
+        <span class="drawer-cat" id="pvCat"></span>
+        <span class="drawer-name" id="pvName"></span>
+      </div>
+      <div class="drawer-actions">
+        <button class="ghost" id="pvOpen">新窗口</button>
+        <button class="ghost" id="pvDownload">下载</button>
+        <button class="ghost danger" id="pvDelete">删除</button>
+        <button class="icon-btn" id="pvClose" title="关闭">×</button>
+      </div>
+    </header>
+    <div class="drawer-body" id="pvBody"></div>
+  </aside>
+
+  <!-- 上传进度浮层 -->
+  <div class="progress-card" id="progressCard" hidden>
+    <div class="progress-head">
+      <span class="prog-name" id="progName"></span>
+      <span class="prog-pct" id="progPct">0%</span>
+    </div>
+    <div class="progress-track"><div class="progress-bar" id="progBar"></div></div>
+    <div class="progress-sub" id="progSub"></div>
+  </div>
+
+  <div class="toast-wrap" id="toastWrap"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
