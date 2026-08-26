@@ -294,7 +294,25 @@ function handleUpload(req, res, query) {
   if (!fs.existsSync(dir)) return sendError(res, 404, '目录不存在')
   if (!fs.statSync(dir).isDirectory()) return sendError(res, 400, '目标不是目录')
 
-  const finalPath = path.join(dir, name)
+  // 可选 rel：目标目录下的相对子目录链（以 / 分隔），用于文件夹上传保持原生目录结构。
+  // 逐段校验，拒绝分隔符、Windows 非法字符以及 . / .. 路径穿越。
+  let relDir = ''
+  if (query.rel) {
+    const parts = query.rel.split('/').filter(Boolean)
+    if (parts.some(p => /[\\/:*?"<>|]|^\.\.?$/.test(p))) {
+      return sendError(res, 403, '相对路径不合法')
+    }
+    relDir = path.join(...parts)
+  }
+  const baseDir = path.join(dir, relDir)
+  if (relDir) {
+    // 逐级创建子目录；递归创建不会越出安全解析后的 baseDir
+    try { fs.mkdirSync(baseDir, { recursive: true }) } catch (e) {
+      return sendError(res, 500, '创建子目录失败')
+    }
+  }
+
+  const finalPath = path.join(baseDir, name)
   const tmpPath = finalPath + '.part'
   let bytes = 0
   let finished = false
@@ -432,6 +450,64 @@ function handleDelete(req, res, urlPath) {
   }
 }
 
+/** 新建目录：POST /api/mkdir?path=&name= */
+function handleMkdir(res, query) {
+  const name = (query.name || '').trim()
+  // 目录名禁止包含路径分隔符与 Windows 非法字符
+  if (!name || /[\\/:*?"<>|]/.test(name)) return sendError(res, 400, '目录名不合法')
+  let parent
+  try {
+    parent = safeResolve(query.path || '')
+  } catch (e) {
+    return sendError(res, 403, '路径禁止访问')
+  }
+  if (!fs.existsSync(parent)) return sendError(res, 404, '目录不存在')
+  if (!fs.statSync(parent).isDirectory()) return sendError(res, 400, '目标不是目录')
+  const target = path.join(parent, name)
+  if (fs.existsSync(target)) return sendError(res, 409, '同名文件或目录已存在')
+  try {
+    fs.mkdirSync(target)
+    sendJSON(res, 200, { ok: true })
+  } catch (e) {
+    sendError(res, 500, '创建失败')
+  }
+}
+
+/** 移动文件/目录到目标目录：POST /api/move?from=&to=
+ *  from / to 均指服务器内相对路径；to 为目标目录，原文件保留原文件名移入其中 */
+function handleMove(res, query) {
+  const from = (query.from || '').trim()
+  const to = (query.to || '').trim()
+  if (!from) return sendError(res, 400, '缺少源路径')
+  let fromAbs, toAbs
+  try {
+    fromAbs = safeResolve(from)
+  } catch (e) {
+    return sendError(res, 403, '源路径禁止访问')
+  }
+  try {
+    toAbs = safeResolve(to || '')
+  } catch (e) {
+    return sendError(res, 403, '目标路径禁止访问')
+  }
+  if (!fs.existsSync(fromAbs)) return sendError(res, 404, '源路径不存在')
+  if (!fs.existsSync(toAbs) || !fs.statSync(toAbs).isDirectory()) return sendError(res, 400, '目标不是目录')
+  if (fromAbs === ROOT) return sendError(res, 400, '不能移动根目录')
+  // 禁止把目录移入自身或其子目录
+  if (fs.statSync(fromAbs).isDirectory() && (toAbs === fromAbs || toAbs.startsWith(fromAbs + path.sep))) {
+    return sendError(res, 400, '不能移动到自身或其子目录')
+  }
+  const target = path.join(toAbs, path.basename(fromAbs))
+  if (target === fromAbs) return sendError(res, 400, '文件已位于该目录')
+  if (fs.existsSync(target)) return sendError(res, 409, '目标目录已有同名文件')
+  try {
+    fs.renameSync(fromAbs, target)
+    sendJSON(res, 200, { ok: true })
+  } catch (e) {
+    sendError(res, 500, '移动失败')
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 主服务器
 // ---------------------------------------------------------------------------
@@ -440,6 +516,8 @@ const server = http.createServer((req, res) => {
   const query = parseQuery(req.url)
 
   if (url === '/api/list') return handleList(res, query)
+  if (url === '/api/mkdir' && req.method === 'POST') return handleMkdir(res, query)
+  if (url === '/api/move' && req.method === 'POST') return handleMove(res, query)
   if (url.startsWith('/api/upload')) return handleUpload(req, res, query)
 
   if (url.startsWith('/api/file/')) {

@@ -12,6 +12,8 @@
 <body>
   <!-- 全局隐藏的选文件输入（不嵌套进任何按钮，避免移动端重复弹窗） -->
   <input type="file" id="fileInput" multiple hidden />
+  <!-- 文件夹上传输入（webkitdirectory 读取所选文件夹并把其内部相对路径置于 webkitRelativePath） -->
+  <input type="file" id="folderInput" webkitdirectory multiple hidden />
 
   <!-- 背景氛围层 -->
   <div class="aurora" aria-hidden="true"></div>
@@ -29,9 +31,17 @@
       </div>
 
       <div class="top-actions">
+        <button type="button" class="tool-btn" id="mkdirTrigger">
+          <svg viewBox="0 0 24 24" class="icon"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          新建文件夹
+        </button>
         <button type="button" class="upload-btn" id="uploadTrigger">
           <svg viewBox="0 0 24 24" class="icon"><path d="M7 16l5-5 5 5M12 4v10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           上传
+        </button>
+        <button type="button" class="tool-btn" id="folderUploadTrigger">
+          <svg viewBox="0 0 24 24" class="icon"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 11v5M9.5 13.5L12 16l2.5-2.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          上传文件夹
         </button>
         <div class="server-meta">
           <span class="dot"></span>
@@ -77,6 +87,36 @@
     </header>
     <div class="drawer-body" id="pvBody"></div>
   </aside>
+
+  <!-- 建目录弹窗 -->
+  <div class="modal-scrim" id="mkdirScrim" hidden>
+    <div class="modal">
+      <div class="modal-title">新建文件夹</div>
+      <div class="modal-sub" id="mkdirSub">将创建在当前目录</div>
+      <input id="mkdirName" type="text" placeholder="文件夹名称" autocomplete="off" maxlength="80" />
+      <div class="modal-actions">
+        <button type="button" class="ghost" id="mkdirCancel">取消</button>
+        <button type="button" class="primary" id="mkdirOk">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 移动弹窗 -->
+  <div class="modal-scrim" id="mvScrim" hidden>
+    <div class="modal modal-wide">
+      <div class="modal-title" id="mvTitle">移动</div>
+      <div class="mv-sub" id="mvSource"></div>
+      <div class="mv-path">
+        <button type="button" class="mv-up" id="mvUp" title="上一级">‹</button>
+        <div class="mv-crumbs" id="mvCrumbs"></div>
+      </div>
+      <div class="mv-box" id="mvBox"></div>
+      <div class="modal-actions">
+        <button type="button" class="ghost" id="mvCancel">取消</button>
+        <button type="button" class="primary" id="mvOk" disabled>移动到此处</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 上传进度浮层 -->
   <div class="progress-card" id="progressCard" hidden>

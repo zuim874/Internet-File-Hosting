@@ -137,6 +137,29 @@ function renderList(data) {
       if (f.isDir) { state.path = joinPath(state.path, f.name); state.cat = 'all'; refresh('nav') }
       else openPreview(f)
     }
+    // 行操作：移动 / 删除（文件或文件夹均可），阻止冒泡以免触发行默认行为
+    const rowActs = document.createElement('div')
+    rowActs.className = 'row-actions'
+    const mvBtn = document.createElement('button')
+    mvBtn.className = 'act mv'
+    mvBtn.innerHTML = '⇄'
+    mvBtn.title = f.isDir ? '移动文件夹' : '移动文件'
+    mvBtn.onclick = (e) => { e.stopPropagation(); openMove(joinPath(state.path, f.name), f) }
+    const delBtn = document.createElement('button')
+    delBtn.className = 'act del'
+    delBtn.innerHTML = '✕'
+    delBtn.title = f.isDir ? '删除文件夹' : '删除文件'
+    delBtn.onclick = (e) => {
+      e.stopPropagation()
+      if (!confirm(`确定删除「${f.name}」${f.isDir ? '及其全部内容' : ''}？此操作不可恢复。`)) return
+      const p = encodePath(joinPath(state.path, f.name))
+      fetch('/api/delete/' + p, { method: 'DELETE' }).then(r => r.json()).then((d) => {
+        if (d.ok) { toast(`已删除「${f.name}」`); loadList() } else toast(d.error || '删除失败', true)
+      }).catch(() => toast('删除失败：网络错误', true))
+    }
+    rowActs.appendChild(mvBtn)
+    rowActs.appendChild(delBtn)
+    el.appendChild(rowActs)
     wrap.appendChild(el)
   })
 }
@@ -193,11 +216,20 @@ const fileInput = $('#fileInput')
 $('#uploadTrigger').addEventListener('click', () => fileInput.click())
 fileInput.addEventListener('change', () => {
   const files = Array.from(fileInput.files)
-  if (files.length) uploadFiles(files)
+  if (files.length) uploadFiles(files, false)
   fileInput.value = ''
 })
 
-async function uploadFiles(files) {
+// 文件夹上传：webkitdirectory 让每个文件携带相对路径 webkitRelativePath
+const folderInput = $('#folderInput')
+$('#folderUploadTrigger').addEventListener('click', () => folderInput.click())
+folderInput.addEventListener('change', () => {
+  const files = Array.from(folderInput.files)
+  if (files.length) uploadFiles(files, true)
+  folderInput.value = ''
+})
+
+async function uploadFiles(files, isFolder) {
   const btn = $('#uploadTrigger')
   const card = $('#progressCard')
   const nameEl = $('#progName')
@@ -211,8 +243,16 @@ async function uploadFiles(files) {
   // 每个文件依次上传，展示实时进度
   for (let i = 0; i < files.length; i++) {
     const file = files[i]
-    nameEl.textContent = file.name
+    // 文件夹上传时，保留所选文件夹到该文件的相对目录链（含顶层文件夹），以还原原生结构
+    let rel = ''
+    if (isFolder) {
+      const rp = file.webkitRelativePath || ''
+      const idx = rp.lastIndexOf('/')
+      if (idx > 0) rel = rp.slice(0, idx)
+    }
+    nameEl.textContent = rel ? rel + '/' + file.name : file.name
     const q = new URLSearchParams({ path: state.path, name: file.name })
+    if (rel) q.set('rel', rel)
     try {
       const ok = await uploadOne(file, q, (p) => {
         const aggregate = (done + p) / files.length
@@ -438,6 +478,131 @@ function closeDrawer() {
 $('#pvClose').onclick = closeDrawer
 $('#previewScrim').onclick = closeDrawer
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer() })
+
+/* =============================================================
+   移动文件/文件夹
+============================================================= */
+const mvScrim = $('#mvScrim')
+const mvState = { source: '', name: '', isDir: false, pick: '' }
+function closeMove() { mvScrim.hidden = true }
+
+function openMove(srcRel, f) {
+  mvState.source = srcRel
+  mvState.name = f.name
+  mvState.isDir = f.isDir
+  // 初始定位到源所在目录（上一级），便于直接看到平级目录
+  const sl = srcRel.lastIndexOf('/')
+  mvState.pick = sl >= 0 ? srcRel.slice(0, sl) : ''
+  $('#mvTitle').textContent = f.isDir ? '移动文件夹' : '移动文件'
+  $('#mvSource').textContent = `来源：${srcRel || '根目录'}`
+  mvScrim.hidden = false
+  renderMv()
+}
+
+function renderMv() {
+  const box = $('#mvBox')
+  const crumbs = $('#mvCrumbs')
+  const okBtn = $('#mvOk')
+  // 面包屑：逐级可跳回
+  crumbs.innerHTML = ''
+  const parts = mvState.pick ? mvState.pick.split('/').filter(Boolean) : []
+  let acc = ''
+  crumbs.appendChild(makeCrumb('根目录', '', mvState.pick === ''))
+  parts.forEach((p, i) => {
+    acc = acc ? acc + '/' + p : p
+    crumbs.appendChild(makeCrumb(p, acc, i === parts.length - 1))
+  })
+  function makeCrumb(text, val, current) {
+    const s = document.createElement('span')
+    s.className = 'mvc' + (current ? ' cur' : '')
+    s.textContent = text
+    if (!current) s.onclick = () => { mvState.pick = val === '' ? '' : val; renderMv() }
+    return s
+  }
+  // 上一级按钮
+  $('#mvUp').style.visibility = mvState.pick ? 'visible' : 'hidden'
+  $('#mvUp').onclick = () => {
+    if (!mvState.pick) return
+    mvState.pick = parentPath(mvState.pick)
+    renderMv()
+  }
+  // 目标子目录列表
+  box.innerHTML = '<div class="mv-loading">加载中…</div>'
+  const q = mvState.pick ? '?path=' + encodeURIComponent(mvState.pick) : ''
+  api('/api/list' + q).then((data) => {
+    const dirs = data.items.filter(i => i.isDir)
+    box.innerHTML = ''
+    if (!dirs.length) {
+      box.innerHTML = '<div class="mv-empty">当前目录没有子文件夹</div>'
+    } else {
+      dirs.forEach((d) => {
+        const cell = document.createElement('div')
+        cell.className = 'mv-folder'
+        cell.innerHTML = `<span class="mv-fico">▣</span><span class="mv-fname">${esc(d.name)}</span>`
+        cell.onclick = () => { mvState.pick = joinPath(mvState.pick, d.name); renderMv() }
+        box.appendChild(cell)
+      })
+    }
+    updateMvOk()
+  }).catch(() => {
+    box.innerHTML = '<div class="mv-empty">加载失败</div>'
+  })
+
+  // 移动到此处按钮可用性
+  function updateMvOk() {
+    const srcParent = parentPath(mvState.source)
+    const bad = mvState.pick === srcParent            // 原位
+      || mvState.pick === mvState.source              // 自己
+      || (mvState.isDir && (mvState.pick === mvState.source || mvState.pick.startsWith(mvState.source + '/')))
+    okBtn.disabled = !!bad
+    okBtn.textContent = '移动到此处'
+  }
+}
+function parentPath(p) {
+  if (!p) return ''
+  const i = p.lastIndexOf('/')
+  return i < 0 ? '' : p.slice(0, i)
+}
+
+function doMove() {
+  const okBtn = $('#mvOk')
+  okBtn.disabled = true
+  api('/api/move?' + new URLSearchParams({ from: mvState.source, to: mvState.pick }).toString(), { method: 'POST' })
+    .then(() => {
+      closeMove()
+      toast(`✅ 已移动「${mvState.name}」`)
+      loadList()
+    })
+    .catch((e) => { toast('移动失败：' + e.message, true); renderMv() })
+}
+$('#mvOk').onclick = doMove
+$('#mvCancel').onclick = closeMove
+mvScrim.addEventListener('click', (e) => { if (e.target === mvScrim) closeMove() })
+
+/* =============================================================
+   新建文件夹
+============================================================= */
+const mkdirScrim = $('#mkdirScrim')
+const mkdirName = $('#mkdirName')
+function closeMkdir() { mkdirScrim.hidden = true }
+function doMkdir() {
+  const name = mkdirName.value.trim()
+  if (!name) { mkdirName.focus(); return }
+  api('/api/mkdir?' + new URLSearchParams({ path: state.path, name }).toString(), { method: 'POST' })
+    .then(() => { closeMkdir(); toast(`✅ 已创建文件夹「${name}」`); loadList() })
+    .catch((e) => toast('创建失败：' + e.message, true))
+}
+$('#mkdirTrigger').addEventListener('click', () => {
+  $('#mkdirSub').textContent = state.path ? `将创建在：${state.path}` : '将创建在当前根目录'
+  mkdirName.value = ''
+  mkdirScrim.hidden = false
+  setTimeout(() => mkdirName.focus(), 30)
+})
+$('#mkdirCancel').onclick = closeMkdir
+$('#mkdirOk').onclick = doMkdir
+mkdirScrim.addEventListener('click', (e) => { if (e.target === mkdirScrim) closeMkdir() })
+mkdirName.addEventListener('keydown', (e) => { if (e.key === 'Enter') doMkdir() })
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !mkdirScrim.hidden) closeMkdir() })
 
 /* =============================================================
    Toast 提示
